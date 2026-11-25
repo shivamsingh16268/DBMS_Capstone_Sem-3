@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart School</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#1d2433;--muted:#6b7488;--pri:#2f5bd8;--navbg:#1f3a68;--line:#e1e6f0;--th:#eaf0fb;--ok:#1d8a4e;--bad:#c0392b;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#12161f;--card:#1b2130;--text:#e8ecf5;--muted:#9aa4ba;--pri:#6c8cff;--navbg:#0e2347;--line:#2b3447;--th:#232c40;--ok:#4cc38a;--bad:#ff7b6b;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+header{background:var(--navbg);color:#fff;padding:14px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 24px}
+header h1{font-size:20px;margin:0}
+nav{display:flex;flex-wrap:wrap;gap:6px}
+nav button{background:transparent;color:#cfd9f2;border:0;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px}
+nav button.on,nav button:hover{background:rgba(255,255,255,.15);color:#fff}
+main{max-width:980px;margin:22px auto;padding:0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stats .card{margin:0;text-align:center}.stats b{display:block;font-size:28px;color:var(--pri)}
+.stats span{color:var(--muted);font-size:13px}
+h2{margin:0 0 12px;font-size:20px}h3{margin:0 0 10px;font-size:16px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{background:var(--th)}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input,select{padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text);font-size:14px}
+button.b{background:var(--pri);color:#fff;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:14px}
+button.d{background:transparent;color:var(--bad);border:1px solid var(--bad);padding:3px 9px;border-radius:6px;cursor:pointer}
+.msg{padding:10px 12px;border-radius:6px;margin-bottom:12px;font-size:14px}
+.msg.err{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+.msg.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.note{color:var(--muted);font-size:13px;margin:8px 0 0}
+.pass{color:var(--ok);font-weight:600}.fail{color:var(--bad);font-weight:600}
+.row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+</style></head>
+<body>
+<header><h1>🏫 Smart School</h1><nav id="nav"></nav></header>
+<main id="app">Loading…</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=v=>v===null||v===undefined?'—':String(v).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+let state={
+  stuClass:'', stuSearch:'',
+  teaSubject:'', teaSearch:'',
+  markClass:'', markSubject:'',
+  attSearch:''
+};
+
+async function api(path,method='GET',body){
+  let r;
+  try{
+    r=await fetch('/api/'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  }catch(e){
+    throw new Error('Could not connect to backend. Run "python app.py" in terminal and open http://127.0.0.1:5000.');
+  }
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||'Something went wrong.');
+  return j;
+}
+
+const table=(rows)=>{
+  if(!rows.length) return '<p class="note">No data found.</p>';
+  return `<div class="tw"><table><tr>${Object.keys(rows[0]).map(k=>`<th>${esc(k)}</th>`).join('')}</tr>`+
+   rows.map(r=>`<tr>${Object.values(r).map(v=>`<td>${typeof v==='object'&&v&&v.html?v.html:esc(v)}</td>`).join('')}</tr>`).join('')+'</table></div>';
+};
+const html=h=>({html:h});
+const opt=(arr,v,l,sel='')=>arr.map(x=>`<option value="${x[v]}" ${String(x[v])===String(sel)?'selected':''}>${esc(x[l])}</option>`).join('');
+
+let message='',current='home';
+const flash=(t,type='err')=>{message=`<div class="msg ${type}">${esc(t)}</div>`;};
+const take=()=>{const m=message;message='';return m;};
+
+const pages={
+ async home(){
+  const d=await api('home');
+  const top=d.top.map(x=>({Rank:x.rank_no,Name:x.name,Class:x.class_name,Total:x.total}));
+  return `<div class="stats">
+   <div class="card"><b>${d.stats.students}</b><span>Students</span></div>
+   <div class="card"><b>${d.stats.teachers}</b><span>Teachers</span></div>
+   <div class="card"><b>${d.stats.classes}</b><span>Classes</span></div>
+   <div class="card"><b>₹${d.stats.fees_collected}</b><span>Fees collected</span></div></div>
+   <div class="card"><h3>Top 3 Students</h3>${table(top)}</div>`;
+ },
+ async students(){
+  const qs=new URLSearchParams({class_id:state.stuClass,q:state.stuSearch}).toString();
+  const [rows,meta]=await Promise.all([api('students?'+qs),api('meta')]);
+  return `${take()}<div class="card"><h2>Students</h2>
+   <form onsubmit="addStudent(event)">
+   <input name="name" placeholder="Student name" required>
+   <select name="class_id">${opt(meta.classes,'class_id','class_name')}</select>
+   <input name="phone" placeholder="Phone">
+   <button class="b">Add student</button></form></div>
+   <div class="card"><form onsubmit="filterStudents(event)">
+   <select id="f_stu_class"><option value="">All classes</option>${opt(meta.classes,'class_id','class_name',state.stuClass)}</select>
+   <input id="f_stu_q" value="${esc(state.stuSearch)}" placeholder="Search student name">
+   <button class="b">Filter / Search</button></form></div>
+   <div class="card"><div class="tw"><table><tr><th>ID</th><th>Name</th><th>Class</th><th>Roll</th><th>Phone</th><th></th></tr>
+   ${rows.length?rows.map(s=>`<tr><td>${s.student_id}</td><td>${esc(s.name)}</td><td>${esc(s.class_name)}</td><td>${esc(s.roll_no)}</td><td>${esc(s.phone)}</td>
+   <td><button class="d" onclick="delStudent(${s.student_id})">Delete</button></td></tr>`).join(''):'<tr><td colspan="6">No matching students found.</td></tr>'}</table></div></div>`;
+ },
+ async teachers(){
+  const qs=new URLSearchParams({subject_id:state.teaSubject,q:state.teaSearch}).toString();
+  const [rows,meta]=await Promise.all([api('teachers?'+qs),api('meta')]);
+  const salRows=rows.map(t=>({
+    ID:t.teacher_id,
+    Name:t.name,
+    Subject:t.subject_name,
+    Class:t.assigned_class||'—',
+    Monthly:html('₹'+t.monthly_salary),
+    Paid:html('₹'+t.paid_amount),
+    Salary:html(`<span class="${t.salary_status==='Paid'?'pass':'fail'}">${t.salary_status}</span>`)
+  }));
+  return `${take()}<div class="card"><h2>Teachers & Salary</h2>
+   <form onsubmit="addTeacher(event)">
+   <input name="name" placeholder="Teacher name" required>
+   <select name="subject_id">${opt(meta.subjects,'subject_id','subject_name')}</select>
+   <input name="assigned_class" placeholder="Class (e.g. Class 7)">
+   <input name="phone" placeholder="Phone">
+   <input name="monthly_salary" type="number" step="0.01" placeholder="Monthly salary" required>
+   <button class="b">Add teacher</button></form></div>
+   <div class="card"><h3>Pay Salary</h3>
+   <form onsubmit="paySalary(event)">
+   <select name="teacher_id">${opt(meta.teachers,'teacher_id','name')}</select>
+   <input name="amount" type="number" step="0.01" placeholder="Salary amount" required>
+   <button class="b">Pay salary</button></form>
+   <p class="note">Entering 0 or a negative amount rolls back the transaction.</p></div>
+   <div class="card"><form onsubmit="filterTeachers(event)">
+   <select id="f_tea_sub"><option value="">All subjects</option>${opt(meta.subjects,'subject_id','subject_name',state.teaSubject)}</select>
+   <input id="f_tea_q" value="${esc(state.teaSearch)}" placeholder="Search teacher name">
+   <button class="b">Filter</button></form></div>
+   <div class="card"><h3>Teachers & Salary Status</h3>${table(salRows)}</div>`;
+ },
+ async marks(){
+  const qs=new URLSearchParams({class_id:state.markClass,subject_id:state.markSubject}).toString();
+  const [d,meta]=await Promise.all([api('marks?'+qs),api('meta')]);
+  const subsToShow=state.markSubject?meta.subjects.filter(b=>String(b.subject_id)===String(state.markSubject)):meta.subjects;
+  const rows=d.rows.map(item=>{
+    const o={Name:item.name,Class:item.class_name};
+    subsToShow.forEach(b=>{ o[b.subject_name]=item.scores[b.subject_name]??'—'; });
+    o.Total=item.total;
+    o.Result=item.result!=='—'?html(`<span class="${item.result==='Pass'?'pass':'fail'}">${item.result}</span>`):'—';
+    return o;
+  });
+  return `${take()}<div class="card"><h2>Marks</h2>
+   <form onsubmit="addMarks(event)">
+   <select name="student_id">${opt(meta.students,'student_id','name')}</select>
+   <select name="subject_id">${opt(meta.subjects,'subject_id','subject_name')}</select>
+   <input name="score" type="number" placeholder="Marks (0-100)" required>
+   <button class="b">Save</button></form>
+   <p class="note">Marks outside 0–100 are blocked by a SQL trigger.</p></div>
+   <div class="card"><h3>Filter by Class & Subject</h3>
+   <form onsubmit="filterMarks(event)">
+   <select id="f_mark_cls"><option value="">All classes</option>${opt(meta.classes,'class_id','class_name',state.markClass)}</select>
+   <select id="f_mark_sub"><option value="">All subjects</option>${opt(meta.subjects,'subject_id','subject_name',state.markSubject)}</select>
+   <button class="b">Apply filter</button></form></div>
+   <div class="card"><div class="row"><h3>Result Sheet</h3><button class="b" onclick="makeResults()">Generate results (cursor)</button></div>${table(rows)}</div>`;
+ },
+ async attendance(){
+  const qs=new URLSearchParams({q:state.attSearch}).toString();
+  const d=await api('attendance?'+qs);
+  const sum=d.summary.map(x=>({Name:x.name,Class:x.class_name,'Total days':x.total_days,Present:x.present_days,Percent:x.percent+'%'}));
+  return `${take()}<div class="card"><h2>Attendance</h2>
+   <form onsubmit="filterAttendance(event)">
+   <input id="f_att_q" value="${esc(state.attSearch)}" placeholder="Search student name">
+   <button class="b">Search</button></form>
+   <p class="note">Attendance marking is disabled; view and search student attendance percentages below.</p></div>
+   <div class="card"><h3>Attendance Summary</h3>${table(sum)}</div>`;
+ },
+ async fees(){
+  const [rows,meta]=await Promise.all([api('fees'),api('meta')]);
+  const t=rows.map(r=>({
+    Name:r.name,
+    Class:r.class_name,
+    Paid:Number(r.paid)?'₹'+r.paid:'—',
+    Status:html(Number(r.paid)?'<span class="pass">Paid</span>':'<span class="fail">Unpaid</span>')
+  }));
+  return `${take()}<div class="card"><h2>Fees</h2>
+   <form onsubmit="payFee(event)">
+   <select name="student_id">${opt(meta.students,'student_id','name')}</select>
+   <input name="amount" type="number" step="0.01" placeholder="Amount" required>
+   <button class="b">Pay fees</button></form>
+   <p class="note">Zero or negative amounts trigger a transaction ROLLBACK.</p></div>
+   <div class="card">${table(t)}</div>`;
+ }
+};
+
+const labels={home:'Home',students:'Students',teachers:'Teachers & Salary',marks:'Marks',attendance:'Attendance',fees:'Fees'};
+async function render(p){
+  current=p;
+  $('#nav').innerHTML=Object.keys(labels).map(k=>`<button class="${k==p?'on':''}" onclick="go('${k}')">${labels[k]}</button>`).join('');
+  try{ $('#app').innerHTML=await pages[p](); }
+  catch(e){ $('#app').innerHTML=`<div class="msg err">${esc(e.message)}</div>`; }
+}
+function go(p){message='';render(p);}
+
+async function act(fn,okMsg){
+  try{ await fn(); flash(okMsg,'ok'); }catch(e){ flash(e.message); }
+  render(current);
+}
+
+const addStudent=e=>{e.preventDefault();const f=e.target;
+  act(()=>api('students','POST',{name:f.name.value,class_id:f.class_id.value,phone:f.phone.value}),'Student added.');};
+const filterStudents=e=>{e.preventDefault();
+  state.stuClass=$('#f_stu_class').value; state.stuSearch=$('#f_stu_q').value.trim(); render('students');};
+const delStudent=id=>{ if(confirm('Delete this student?')) act(()=>api('students/'+id,'DELETE'),'Student deleted.'); };
+
+const addTeacher=e=>{e.preventDefault();const f=e.target;
+  act(()=>api('teachers','POST',{name:f.name.value,subject_id:f.subject_id.value,assigned_class:f.assigned_class.value,phone:f.phone.value,monthly_salary:f.monthly_salary.value}),'Teacher added.');};
+const paySalary=e=>{e.preventDefault();const f=e.target;
+  act(()=>api('salaries','POST',{teacher_id:f.teacher_id.value,amount:f.amount.value}),'Salary paid.');};
+const filterTeachers=e=>{e.preventDefault();
+  state.teaSubject=$('#f_tea_sub').value; state.teaSearch=$('#f_tea_q').value.trim(); render('teachers');};
+
+const addMarks=e=>{e.preventDefault();const f=e.target;
+  act(()=>api('marks','POST',{student_id:f.student_id.value,subject_id:f.subject_id.value,score:f.score.value}),'Marks saved.');};
+const filterMarks=e=>{e.preventDefault();
+  state.markClass=$('#f_mark_cls').value; state.markSubject=$('#f_mark_sub').value; render('marks');};
+const makeResults=()=>act(()=>api('marks/results','POST'),'Results generated.');
+
+const filterAttendance=e=>{e.preventDefault();
+  state.attSearch=$('#f_att_q').value.trim(); render('attendance');};
+
+const payFee=e=>{e.preventDefault();const f=e.target;
+  act(()=>api('fees','POST',{student_id:f.student_id.value,amount:f.amount.value}),'Fees paid.');};
+
+render('home');
+</script>
+</body></html>
